@@ -16,6 +16,7 @@ logging.basicConfig(
 
 
 # global
+exe_path = 'ffmpeg'
 ifilename = 'res/in.mp4'
 odir = 'out/'
 
@@ -48,7 +49,7 @@ def run_ffmpeg(*args):
 def ffmpeg_convert(filename, codec, preset, ocr):
     # fmt:off
     res = run_ffmpeg(
-        'ffmpeg',
+        exe_path,
         '-hide_banner',
         '-i', ifilename,
         '-c:a', 'copy',
@@ -66,7 +67,7 @@ def ffmpeg_convert(filename, codec, preset, ocr):
 def ffmpeg_shot(filename):
     # fmt:off
     run_ffmpeg(
-        'ffmpeg',
+        exe_path,
         '-hide_banner',
         '-i', filename,
         '-ss', shot_ts,
