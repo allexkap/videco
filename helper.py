@@ -9,13 +9,17 @@ logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=(
-        logging.FileHandler('iter.log'),
+        logging.FileHandler('helper.log'),
         logging.StreamHandler(),
     ),
 )
 
 
+# global
 ifilename = 'res/in.mp4'
+odir = 'out/'
+
+# convert
 codecs = ['libx265']
 presets = [
     'ultrafast',
@@ -28,7 +32,11 @@ presets = [
     'veryslow',
     'placebo',
 ]
-ocrs = ['20', '24', '27', '30']
+ocrs = [20, 24, 27, 30]
+
+# shot
+shot_ts = '00:00:02'
+shot_pos = '433:336:647:280'  # out_w:out_h:x:y
 
 
 def run_ffmpeg(*args):
@@ -37,17 +45,16 @@ def run_ffmpeg(*args):
     return res.stderr
 
 
-def step(codec, preset, ocr):
-    filename = f'out/{codec}_{preset}_{ocr}.mp4'
+def ffmpeg_convert(filename, codec, preset, ocr):
     # fmt:off
     res = run_ffmpeg(
         'ffmpeg',
         '-hide_banner',
-        '-i', 'res/in.mp4',
+        '-i', ifilename,
         '-c:a', 'copy',
         '-c:v', codec,
         '-preset', preset,
-        '-crf', ocr,
+        '-crf', str(ocr),
         filename
     )
     # fmt:on
@@ -56,9 +63,24 @@ def step(codec, preset, ocr):
     logging.info(f'{codec} {preset} {ocr} : {fps} fps x{isize/size:.2f}')
 
 
+def ffmpeg_shot(filename):
+    # fmt:off
+    run_ffmpeg(
+        'ffmpeg',
+        '-hide_banner',
+        '-i', filename,
+        '-ss', shot_ts,
+        '-vframes', '1',
+        '-filter:v', f'crop={shot_pos}',
+        filename.replace('.mp4', '.png'),
+    )
+
+
 isize = os.path.getsize(ifilename)
 for codec, preset, ocr in product(codecs, presets, ocrs):
     try:
-        step(codec, preset, ocr)
+        filename = f'{odir}/{codec}_{preset}_{ocr}.mp4'
+        ffmpeg_convert(filename, codec, preset, ocr)
+        ffmpeg_shot(filename)
     except Exception as ex:
         logging.error(ex)
