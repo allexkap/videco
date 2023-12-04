@@ -1,6 +1,5 @@
 import logging
 import os
-from itertools import product
 from re import search
 from subprocess import run
 
@@ -21,19 +20,29 @@ ifilename = 'res/in.mp4'
 odir = 'out/'
 
 # convert
-codecs = ['libx265']
-presets = [
-    'ultrafast',
-    'superfast',
-    'veryfast',
-    'faster',
-    'fast',
-    'medium',
-    'slow',
-    'veryslow',
-    'placebo',
-]
-ocrs = [20, 24, 27, 30]
+presets = {
+    'libx265': [
+        'ultrafast',
+        'superfast',
+        'veryfast',
+        'faster',
+        'fast',
+        'medium',
+        'slow',
+        'veryslow',
+        'placebo',
+    ],
+    'hevc_nvenc': [
+        'fastest',
+        'faster',
+        'fast',
+        'medium',
+        'slow',
+        'slower',
+        'slowest',
+    ],
+}
+ocrs = [27, 30]
 
 # shot
 shot_ts = '00:00:02'
@@ -71,11 +80,11 @@ def ffmpeg_convert(filename, codec, preset, ocr):
         filename
     )
     # fmt:on
-    fps = search('([\d]+).+ fps[^\n]+\n$', res)[1]
+    fps = search('([\d]+)(\.\d+)? fps[^\n]+\n$', res)[1]
     size = os.path.getsize(filename)
     vmaf = ffmpeg_vmaf(filename)
     logging.info(
-        f'{codec} {preset:9} {ocr} : {fps:3} fps x{isize/size:.2f} vmaf {vmaf}'
+        f'{codec:10} {preset:9} {ocr:2} : {fps:3} fps x{isize/size:.2f} vmaf {vmaf}'
     )
 
 
@@ -91,10 +100,12 @@ def ffmpeg_shot(filename):
 
 
 isize = os.path.getsize(ifilename)
-for codec, preset, ocr in product(codecs, presets, ocrs):
-    try:
-        filename = f'{odir}/{codec}_{preset}_{ocr}.mp4'
-        ffmpeg_convert(filename, codec, preset, ocr)
-        ffmpeg_shot(filename)
-    except Exception as ex:
-        logging.error(ex)
+for codec in presets:
+    for i, preset in enumerate(presets[codec]):
+        for ocr in ocrs:
+            try:
+                filename = f'{odir}/{codec}_{i}{preset}_{ocr}.mp4'
+                ffmpeg_convert(filename, codec, preset, ocr)
+                ffmpeg_shot(filename)
+            except Exception as ex:
+                logging.error(ex)
