@@ -19,7 +19,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--input', required=True)
     parser.add_argument('-o', '--output', required=True)
-    parser.add_argument('-m', '--move')
+    parser.add_argument('-r', '--raw')
     parser.add_argument('-c', '--codec', default='libx265')
     parser.add_argument('-p', '--preset', default='medium')
     parser.add_argument('--crf', default='27')
@@ -82,6 +82,6 @@ if __name__ == '__main__':
             if os.path.exists(dst_path):
                 os.remove(dst_path)
         else:
-            if args.move:
-                os.rename(entry.path, f'{args.move}/{entry.name}')
+            if args.raw:
+                os.rename(entry.path, f'{args.raw}/{entry.name}')
             logging.info(f'{entry.path}: success')
