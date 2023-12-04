@@ -40,8 +40,22 @@ shot_ts = '00:00:02'
 shot_pos = '433:336:647:280'  # out_w:out_h:x:y
 
 
+def ffmpeg_vmaf(filename):
+    # fmt:off
+    res = run_ffmpeg(
+        '-i', ifilename,
+        '-i', filename,
+        '-lavfi', 'libvmaf',
+        '-f', 'null',
+        '-',
+    )
+    # fmt:off
+    vmaf = search('VMAF score: ([.\d]+)', res)[1]
+    return vmaf
+
+
 def run_ffmpeg(*args):
-    res = run(args, capture_output=True, text=True)
+    res = run((exe_path, '-hide_banner') + args, capture_output=True, text=True)
     assert not res.returncode, res
     return res.stderr
 
@@ -49,8 +63,6 @@ def run_ffmpeg(*args):
 def ffmpeg_convert(filename, codec, preset, ocr):
     # fmt:off
     res = run_ffmpeg(
-        exe_path,
-        '-hide_banner',
         '-i', ifilename,
         '-c:a', 'copy',
         '-c:v', codec,
@@ -61,14 +73,13 @@ def ffmpeg_convert(filename, codec, preset, ocr):
     # fmt:on
     fps = search('([.\d]+) fps[^\n]+\n$', res)[1]
     size = os.path.getsize(filename)
-    logging.info(f'{codec} {preset} {ocr} : {fps} fps x{isize/size:.2f}')
+    vmaf = ffmpeg_vmaf(filename)
+    logging.info(f'{codec} {preset} {ocr} : {fps} fps x{isize/size:.2f} vmaf {vmaf}')
 
 
 def ffmpeg_shot(filename):
     # fmt:off
     run_ffmpeg(
-        exe_path,
-        '-hide_banner',
         '-i', filename,
         '-ss', shot_ts,
         '-vframes', '1',
