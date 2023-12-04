@@ -43,8 +43,8 @@ shot_pos = '433:336:647:280'  # out_w:out_h:x:y
 def ffmpeg_vmaf(filename):
     # fmt:off
     res = run_ffmpeg(
-        '-i', ifilename,
         '-i', filename,
+        '-i', ifilename,
         '-lavfi', 'libvmaf',
         '-f', 'null',
         '-',
@@ -71,10 +71,12 @@ def ffmpeg_convert(filename, codec, preset, ocr):
         filename
     )
     # fmt:on
-    fps = search('([.\d]+) fps[^\n]+\n$', res)[1]
+    fps = search('([\d]+).+ fps[^\n]+\n$', res)[1]
     size = os.path.getsize(filename)
     vmaf = ffmpeg_vmaf(filename)
-    logging.info(f'{codec} {preset} {ocr} : {fps} fps x{isize/size:.2f} vmaf {vmaf}')
+    logging.info(
+        f'{codec} {preset:9} {ocr} : {fps:3} fps x{isize/size:.2f} vmaf {vmaf}'
+    )
 
 
 def ffmpeg_shot(filename):
