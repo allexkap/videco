@@ -1,6 +1,17 @@
 import argparse
+import logging
 from pathlib import Path
 from subprocess import run
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=(
+        logging.StreamHandler(),
+        logging.FileHandler(Path(__file__).with_suffix('.log')),
+    ),
+)
 
 
 def parse_args():
@@ -61,12 +72,20 @@ def run_ffmpeg(ffmpeg, file_in, file_out, video_args, app_volume=1, voice_volume
 
 if __name__ == '__main__':
     args = parse_args()
+    logging.info(f'running with arguments {args=}')
     for path in args.in_dir.glob('*'):
+        name = repr(path.name)
         if not path.is_file():
+            logging.info(f'skipped {name}')
             continue
+        logging.info(f'starting {name}')
         res = run_ffmpeg(
             args.ffmpeg,
             path,
             args.out_dir / path.name,
             args.video_args.split(),
         )
+        if res == 0:
+            logging.info(f'finished {name}')
+        else:
+            logging.error(f'finished {name} with non zero return code')
