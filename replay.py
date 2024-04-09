@@ -1,7 +1,7 @@
 import argparse
 import logging
+import subprocess
 from pathlib import Path
-from subprocess import run
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +39,13 @@ def parse_args():
         help='path to the directory with future results',
     )
     parser.add_argument(
+        '-t',
+        '--tmp_dir',
+        default=None,
+        type=Path,
+        help='path to the directory with moved raw files',
+    )
+    parser.add_argument(
         '-v',
         '--video_args',
         default='-c:v copy',
@@ -67,17 +74,22 @@ def run_ffmpeg(ffmpeg, file_in, file_out, video_args, app_volume=1, voice_volume
         '-metadata:s:a:2', 'title=Voice',
         file_out,
     )
-    return run(cmd).returncode
+    res = subprocess.run(cmd, stderr=subprocess.PIPE)
+    if res.returncode:
+        return res.stderr.decode()
+    return ''
 
 
 if __name__ == '__main__':
     args = parse_args()
     logging.info(f'running with arguments {args=}')
+
     for path in args.in_dir.glob('*'):
         name = repr(path.name)
         if not path.is_file():
             logging.info(f'skipped {name}')
             continue
+
         logging.info(f'starting {name}')
         res = run_ffmpeg(
             args.ffmpeg,
@@ -85,7 +97,11 @@ if __name__ == '__main__':
             args.out_dir / path.name,
             args.video_args.split(),
         )
-        if res == 0:
-            logging.info(f'finished {name}')
-        else:
-            logging.error(f'finished {name} with non zero return code')
+
+        if res:
+            logging.error(f'finished {name} non zero return code:\n{res}')
+            continue
+        logging.info(f'finished {name}')
+
+        if args.tmp_dir is not None:
+            path.rename(args.tmp_dir / path.name)
