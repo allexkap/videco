@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import subprocess
 from pathlib import Path
@@ -16,13 +17,6 @@ logging.basicConfig(
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '-f',
-        '--ffmpeg',
-        default='ffmpeg',
-        type=Path,
-        help='path to the ffmpeg binary file',
-    )
     parser.add_argument(
         '-i',
         '--in_dir',
@@ -52,6 +46,18 @@ def parse_args():
         type=str,
         help='video args for ffmpeg',
     )
+    parser.add_argument(
+        '--ffmpeg',
+        default='ffmpeg',
+        type=Path,
+        help='path to the ffmpeg binary file',
+    )
+    parser.add_argument(
+        '--ffprobe',
+        default='ffprobe',
+        type=Path,
+        help='path to the ffprobe binary file',
+    )
     return parser.parse_args()
 
 
@@ -78,6 +84,14 @@ def run_ffmpeg(ffmpeg, file_in, file_out, video_args, app_volume=1, voice_volume
     if res.returncode:
         return res.stderr.decode()
     return ''
+
+
+def run_ffprobe(ffpbore, file, args=('-show_format', '-show_streams')):
+    cmd = (ffpbore, '-v', 'quiet', '-of', 'json', *args, file)
+    res = subprocess.run(cmd, capture_output=True)
+    if res.returncode:
+        raise ChildProcessError(res.stderr.decode())
+    return json.loads(res.stdout.decode())
 
 
 if __name__ == '__main__':
