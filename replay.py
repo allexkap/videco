@@ -61,7 +61,9 @@ def parse_args():
     return parser.parse_args()
 
 
-def run_ffmpeg(ffmpeg, file_in, file_out, video_args, app_volume=1, voice_volume=1):
+def run_ffmpeg(
+    ffmpeg, file_in, file_out, video_args, meta_args=(), app_volume=1, voice_volume=1
+):
     # fmt: off
     cmd = (
         ffmpeg, '-hide_banner', '-y',
@@ -78,6 +80,7 @@ def run_ffmpeg(ffmpeg, file_in, file_out, video_args, app_volume=1, voice_volume
         '-metadata:s:a:0', 'title=Merged',
         '-metadata:s:a:1', 'title=App',
         '-metadata:s:a:2', 'title=Voice',
+        *meta_args,
         file_out,
     )
     res = subprocess.run(cmd, stderr=subprocess.PIPE)
@@ -86,7 +89,7 @@ def run_ffmpeg(ffmpeg, file_in, file_out, video_args, app_volume=1, voice_volume
     return ''
 
 
-def run_ffprobe(ffpbore, file, args=('-show_format', '-show_streams')):
+def run_ffprobe(ffpbore, file, args=('-show_format',)):
     cmd = (ffpbore, '-v', 'quiet', '-of', 'json', *args, file)
     res = subprocess.run(cmd, capture_output=True)
     if res.returncode:
@@ -103,13 +106,22 @@ if __name__ == '__main__':
         if not path.is_file():
             logging.info(f'skipped {name}')
             continue
-
         logging.info(f'starting {name}')
+
+        meta_args = []
+        meta_json = run_ffprobe(args.ffprobe, path)
+        try:
+            creation_time = meta_json['format']['tags']['creation_time']
+            meta_args.extend(('-metadata', f'creation_time={creation_time}'))
+        except KeyError:
+            logging.debug(f'creation_time not found for {name}')
+
         res = run_ffmpeg(
             args.ffmpeg,
             path,
             args.out_dir / path.name,
             args.video_args.split(),
+            meta_args,
         )
 
         if res:
