@@ -4,6 +4,7 @@ import logging
 import os
 import shlex
 import subprocess
+import time
 from pathlib import Path
 
 logging.basicConfig(
@@ -101,7 +102,7 @@ def prepare_metadata(file) -> list[str]:
 def run_ffmpeg(file_in, file_out, args) -> str:
     # fmt: off
     cmd = (
-        'ffmpeg', '-hide_banner', '-y',
+        'ffmpeg', '-hide_banner', '-nostdin', '-y',
         '-i', file_in,
         *prepare_ffmpeg_args(args),
         *prepare_metadata(file_in),
@@ -135,15 +136,20 @@ if __name__ == '__main__':
         if not path.is_file():
             logging.info(f'skipped {name}')
             continue
+        start_time = time.monotonic()
         logging.info(f'starting {name}')
 
-        res = run_ffmpeg(path, args.out_dir / path.name, args)
+        path_out = args.out_dir / path.name
+        res = run_ffmpeg(path, path_out, args)
         if res:
+            if path_out.exists():
+                path_out.unlink()
             logging.error(f'finished {name} with non zero return code:\n{res}')
             continue
 
-        copy_mtime(path, args.out_dir / path.name)
+        copy_mtime(path, path_out)
         if args.tmp_dir is not None:
             path.rename(args.tmp_dir / path.name)
 
-        logging.info(f'finished {name}')
+        delta = time.monotonic() - start_time
+        logging.info(f'finished {name} in {delta:.2f} seconds')
