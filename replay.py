@@ -86,12 +86,24 @@ def prepare_ffmpeg_args(args) -> tuple[str, ...]:
     )
 
 
+def prepare_metadata(file) -> list[str]:
+    meta_args = []
+    meta_json = run_ffprobe(file)
+    try:
+        creation_time = meta_json['format']['tags']['creation_time']
+        meta_args.extend(('-metadata', f'creation_time={creation_time}'))
+    except KeyError:
+        logging.debug(f'creation_time not found for {repr(file)}')
+    return meta_args
+
+
 def run_ffmpeg(file_in, file_out, args) -> str:
     # fmt: off
     cmd = (
         'ffmpeg', '-hide_banner', '-y',
         '-i', file_in,
         *prepare_ffmpeg_args(args),
+        *prepare_metadata(file_in),
         file_out,
     )
     res = subprocess.run(cmd, stderr=subprocess.PIPE)
@@ -101,7 +113,7 @@ def run_ffmpeg(file_in, file_out, args) -> str:
 
 
 def run_ffprobe(file, args=('-show_format',)) -> dict:
-    cmd = ('ffpbore', '-v', 'quiet', '-of', 'json', *args, file)
+    cmd = ('ffprobe', '-v', 'quiet', '-of', 'json', *args, file)
     res = subprocess.run(cmd, capture_output=True)
     if res.returncode:
         raise ChildProcessError(res.stderr.decode())
