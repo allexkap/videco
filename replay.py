@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 import shlex
 import subprocess
 from pathlib import Path
@@ -65,7 +66,7 @@ def prepare_ffmpeg_args(args) -> tuple[str, ...]:
     parse = lambda args, default: shlex.split(args) if args is not None else default
     # fmt: off
     if args.merge_args is not None:
-        volumes = tuple(map(int, args.merge_args.split(',')))
+        volumes = tuple(map(float, args.merge_args.split(',')))
         return (
             '-map', '0:v',
             *parse(args.video_args, default=('-c:v', 'copy')),
@@ -120,6 +121,11 @@ def run_ffprobe(file, args=('-show_format',)) -> dict:
     return json.loads(res.stdout.decode())
 
 
+def copy_mtime(file_in, file_out) -> None:
+    mtime = os.path.getmtime(file_in)
+    os.utime(file_out, (mtime, mtime))
+
+
 if __name__ == '__main__':
     args = parse_args()
     logging.info(f'running with arguments {args=}')
@@ -132,11 +138,11 @@ if __name__ == '__main__':
         logging.info(f'starting {name}')
 
         res = run_ffmpeg(path, args.out_dir / path.name, args)
-
         if res:
             logging.error(f'finished {name} with non zero return code:\n{res}')
             continue
 
+        copy_mtime(path, args.out_dir / path.name)
         if args.tmp_dir is not None:
             path.rename(args.tmp_dir / path.name)
 
