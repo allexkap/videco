@@ -1,111 +1,74 @@
 import logging
 import os
+import re
+import subprocess
+import time
+from itertools import product
+from pathlib import Path
 from re import search
-from subprocess import run
+from time import monotonic
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
+    level=logging.DEBUG,
+    format='[%(asctime)s] %(levelname)s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=(
-        logging.FileHandler('helper.log'),
         logging.StreamHandler(),
+        logging.FileHandler(Path(__file__).with_suffix('.log')),
     ),
 )
 
 
-# global
-exe_path = 'ffmpeg'
-ifilename = 'res/in.mp4'
-odir = 'out/'
+in_file = Path('./res/loc.mp4')
+out_dir = Path('./out/')
 
-# convert
-presets = {
-    'libx265': [
-        'ultrafast',
-        'superfast',
-        'veryfast',
-        'faster',
-        'fast',
-        'medium',
-        'slow',
-        'veryslow',
-        'placebo',
-    ],
-    'hevc_nvenc': [
-        'fastest',
-        'faster',
-        'fast',
-        'medium',
-        'slow',
-        'slower',
-        'slowest',
-    ],
-}
-ocrs = [27, 30]
-
-# shot
-shot_ts = '00:00:02'
-shot_pos = '433:336:647:280'  # out_w:out_h:x:y
+codecs = ('hevc_nvenc',)
+presets = (
+    'default',
+    'fast',
+)
+quality = (20, 30)
 
 
-def ffmpeg_vmaf(filename):
-    # fmt:off
-    res = run_ffmpeg(
-        '-i', filename,
-        '-i', ifilename,
-        '-lavfi', 'libvmaf',
-        '-f', 'null',
-        '-',
+def run_ffmpeg(in_file, out_file, args=()):
+    # fmt: off
+    cmd = (
+        'ffmpeg', '-hide_banner', '-v', 'info', '-nostdin', '-y',
+        '-i', in_file,
+        *args,
+        out_file,
     )
-    # fmt:off
-    vmaf = search('VMAF score: ([.\d]+)', res)[1]
-    return vmaf
+    start_ts = time.monotonic()
+    out = subprocess.run(cmd, capture_output=True, check=True)
+    delta = time.monotonic() - start_ts
+    return delta, out
 
 
-def run_ffmpeg(*args):
-    res = run((exe_path, '-hide_banner') + args, capture_output=True, text=True)
-    assert not res.returncode, res
-    return res.stderr
-
-
-def ffmpeg_convert(filename, codec, preset, ocr):
-    # fmt:off
-    res = run_ffmpeg(
-        '-i', ifilename,
-        '-c:a', 'copy',
-        '-c:v', codec,
-        '-preset', preset,
-        '-crf', str(ocr),
-        filename
+def run_vmaf(reference_file, distorted_file):
+    _, out = run_ffmpeg(
+        in_file=distorted_file,
+        out_file='-',
+        args=('-i', reference_file, '-lavfi', 'libvmaf', '-f', 'null'),
     )
-    # fmt:on
-    fps = search('([\d]+)(\.\d+)? fps[^\n]+\n$', res)[1]
-    size = os.path.getsize(filename)
-    vmaf = ffmpeg_vmaf(filename)
-    logging.info(
-        f'{codec:10} {preset:9} {ocr:2} : {fps:3} fps x{isize/size:.2f} vmaf {vmaf}'
-    )
+    score = re.search(r'VMAF score: ([.\d]+)', out.stderr.decode())
+    return score[1] if score else '?'
 
 
-def ffmpeg_shot(filename):
-    # fmt:off
-    run_ffmpeg(
-        '-i', filename,
-        '-ss', shot_ts,
-        '-vframes', '1',
-        '-filter:v', f'crop={shot_pos}',
-        filename.replace('.mp4', '.png'),
-    )
-
-
-isize = os.path.getsize(ifilename)
-for codec in presets:
-    for i, preset in enumerate(presets[codec]):
-        for ocr in ocrs:
-            try:
-                filename = f'{odir}/{codec}_{i}{preset}_{ocr}.mp4'
-                ffmpeg_convert(filename, codec, preset, ocr)
-                ffmpeg_shot(filename)
-            except Exception as ex:
-                logging.error(ex)
+if __name__ == '__main__':
+    original_filesize = os.path.getsize(in_file)
+    for c, p, q in product(codecs, presets, quality):
+        out_file = out_dir / f'{in_file.stem}_{c}_{p}_{q}{in_file.suffix}'
+        name = repr(out_file.name)
+        try:
+            logging.debug(f'starting {name}')
+            elapsed_time, _ = run_ffmpeg(
+                in_file, out_file, ('-c:v', c, '-preset', p, '-crf', str(q))
+            )
+            filesize = os.path.getsize(out_file)
+            logging.debug(f'finished {name} in {elapsed_time:.2f}s')
+            score = run_vmaf(in_file, out_file)
+            logging.info(
+                f'{name} {elapsed_time:.2f}s {filesize/original_filesize*100:.2f}% {score}'
+            )
+        except subprocess.CalledProcessError as ex:
+            logging.error(f'CalledProcessError {name}: {ex.stderr}')
