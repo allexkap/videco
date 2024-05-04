@@ -5,6 +5,7 @@ import os
 import shlex
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 logging.basicConfig(
@@ -60,22 +61,35 @@ def parse_args() -> argparse.Namespace:
         type=str,
         help='special mode for nvidia replay; [app_volume,voice_volume]',
     )
+    parser.add_argument(
+        '-w',
+        '--wildcard',
+        default='*',
+        type=str,
+        help='wildcard pattern in input directory',
+    )
+    parser.add_argument(
+        '-j',
+        '--threads',
+        default=1,
+        type=int,
+        help='number of files processed simultaneously',
+    )
     return parser.parse_args()
 
 
-def prepare_ffmpeg_args(args) -> tuple[str, ...]:
+def prepare_ffmpeg_args() -> tuple[str, ...]:
     parse = lambda args, default: shlex.split(args) if args is not None else default
     # fmt: off
-    if args.merge_args is not None:
-        volumes = tuple(map(float, args.merge_args.split(',')))
+    if ARGS.merge_args is not None:
+        volumes = tuple(map(float, ARGS.merge_args.split(',')))
         return (
-            '-map', '0:v',
-            *parse(args.video_args, default=('-c:v', 'copy')),
+            '-map', 'v',
+            *parse(ARGS.video_args, default=('-c:v', 'copy')),
             '-filter_complex',
             f'[0:a:0]volume={volumes[0]}[a0]; [0:a:1]volume={volumes[1]}[a1]; [a0][a1]amix[a]',
-            '-map', '[a]',
-            '-map', '0:a',
-            *parse(args.audio_args, default=('-c:a:0', 'aac', '-c:a:1', 'copy', '-c:a:2', 'copy')),
+            '-map', '[a]', '-map', 'a',
+            *parse(ARGS.audio_args, default=('-c:a:0', 'aac', '-c:a:1', 'copy', '-c:a:2', 'copy')),
             '-disposition:a', 'none',
             '-disposition:a:0', 'default',
             '-metadata:s:a:0', 'title=Merged',
@@ -83,8 +97,8 @@ def prepare_ffmpeg_args(args) -> tuple[str, ...]:
             '-metadata:s:a:2', 'title=Voice',
         )
     return (
-        *parse(args.video_args, default=('-c:v', 'copy')),
-        *parse(args.audio_args, default=('-c:a', 'copy')),
+        '-map', 'v', *parse(ARGS.video_args, default=('-c:v', 'copy')),
+        '-map', 'a', *parse(ARGS.audio_args, default=('-c:a', 'copy')),
     )
 
 
@@ -99,26 +113,21 @@ def prepare_metadata(file) -> list[str]:
     return meta_args
 
 
-def run_ffmpeg(file_in, file_out, args) -> str:
+def run_ffmpeg(file_in, file_out):
     # fmt: off
     cmd = (
-        'ffmpeg', '-hide_banner', '-nostdin', '-y',
+        'ffmpeg', '-hide_banner', '-v', 'warning', '-nostdin', '-y',
         '-i', file_in,
-        *prepare_ffmpeg_args(args),
+        *prepare_ffmpeg_args(),
         *prepare_metadata(file_in),
         file_out,
     )
-    res = subprocess.run(cmd, stderr=subprocess.PIPE)
-    if res.returncode:
-        return res.stderr.decode()
-    return ''
+    subprocess.run(cmd, stderr=subprocess.PIPE, check=True)
 
 
 def run_ffprobe(file, args=('-show_format',)) -> dict:
-    cmd = ('ffprobe', '-v', 'quiet', '-of', 'json', *args, file)
-    res = subprocess.run(cmd, capture_output=True)
-    if res.returncode:
-        raise ChildProcessError(res.stderr.decode())
+    cmd = ('ffprobe', '-v', 'warning', '-of', 'json', *args, file)
+    res = subprocess.run(cmd, capture_output=True, check=True)
     return json.loads(res.stdout.decode())
 
 
@@ -127,29 +136,33 @@ def copy_mtime(file_in, file_out) -> None:
     os.utime(file_out, (mtime, mtime))
 
 
+def process_file(path):
+    name = repr(path.name)
+    if not path.is_file():
+        logging.info(f'skipped {name}')
+        return
+    start_time = time.monotonic()
+    logging.info(f'starting {name}')
+
+    path_out = ARGS.out_dir / path.name
+    res = run_ffmpeg(path, path_out)
+    if res:
+        if path_out.exists():
+            path_out.unlink()
+        logging.error(f'finished {name} with non zero return code:\n{res}')
+        return
+
+    copy_mtime(path, path_out)
+    if ARGS.tmp_dir is not None:
+        path.rename(ARGS.tmp_dir / path.name)
+
+    delta = time.monotonic() - start_time
+    logging.info(f'finished {name} in {delta:.2f} seconds')
+
+
 if __name__ == '__main__':
-    args = parse_args()
-    logging.info(f'running with arguments {args=}')
+    ARGS = parse_args()
+    logging.info(f'running with arguments {ARGS=}')
 
-    for path in args.in_dir.glob('*'):
-        name = repr(path.name)
-        if not path.is_file():
-            logging.info(f'skipped {name}')
-            continue
-        start_time = time.monotonic()
-        logging.info(f'starting {name}')
-
-        path_out = args.out_dir / path.name
-        res = run_ffmpeg(path, path_out, args)
-        if res:
-            if path_out.exists():
-                path_out.unlink()
-            logging.error(f'finished {name} with non zero return code:\n{res}')
-            continue
-
-        copy_mtime(path, path_out)
-        if args.tmp_dir is not None:
-            path.rename(args.tmp_dir / path.name)
-
-        delta = time.monotonic() - start_time
-        logging.info(f'finished {name} in {delta:.2f} seconds')
+    with ThreadPoolExecutor(max_workers=ARGS.threads) as executor:
+        executor.map(process_file, ARGS.in_dir.glob(ARGS.wildcard))
