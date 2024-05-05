@@ -1,15 +1,14 @@
+import itertools
 import logging
 import os
 import re
 import subprocess
+import threading
 import time
-from itertools import product
 from pathlib import Path
-from re import search
-from time import monotonic
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='[%(asctime)s] %(levelname)s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=(
@@ -18,6 +17,7 @@ logging.basicConfig(
     ),
 )
 
+VMAF_THREADS = os.cpu_count() or 4
 
 in_file = Path('./res/loc.mp4')
 out_dir = Path('./out/')
@@ -56,19 +56,30 @@ def run_vmaf(reference_file, distorted_file):
 
 if __name__ == '__main__':
     original_filesize = os.path.getsize(in_file)
-    for c, p, q in product(codecs, presets, quality):
+    threads = []
+    for c, p, q in itertools.product(codecs, presets, quality):
         out_file = out_dir / f'{in_file.stem}_{c}_{p}_{q}{in_file.suffix}'
         name = repr(out_file.name)
+        while True:
+            threads = [t for t in threads if t.is_alive()]
+            if len(threads) < VMAF_THREADS:
+                break
+            time.sleep(1)
         try:
             logging.debug(f'starting {name}')
             elapsed_time, _ = run_ffmpeg(
-                in_file, out_file, ('-c:v', c, '-preset', p, '-crf', str(q))
+                in_file, out_file, ('-c:v', c, '-preset', p, '-cq', str(q))
             )
             filesize = os.path.getsize(out_file)
             logging.debug(f'finished {name} in {elapsed_time:.2f}s')
-            score = run_vmaf(in_file, out_file)
-            logging.info(
-                f'{name} {elapsed_time:.2f}s {filesize/original_filesize*100:.2f}% {score}'
+            t = threading.Thread(
+                target=lambda: logging.info(
+                    f'{name} {elapsed_time:.2f}s {filesize/original_filesize*100:.2f}% {run_vmaf(in_file, out_file)}'
+                )
             )
+            t.start()
+            threads.append(t)
         except subprocess.CalledProcessError as ex:
             logging.error(f'CalledProcessError {name}: {ex.stderr}')
+    for t in threads:
+        t.join()
